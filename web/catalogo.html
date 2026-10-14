@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Catálogo · Farmacia Huasteca</title>
+<link rel="stylesheet" href="estilos.css">
+<style>
+  .lista { display: grid; gap: 10px; }
+  .producto { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; align-items: center; }
+  .producto .precio { font-size: 1.1rem; font-weight: 800; font-variant-numeric: tabular-nums; text-align: right; }
+  .producto .chips { display: flex; gap: 6px; flex-wrap: wrap; grid-column: 1 / -1; }
+</style>
+</head>
+<body>
+<main class="pagina" style="max-width:640px">
+  <div class="encabezado">
+    <h1>Consulta de precios</h1>
+    <p>Precios con IVA incluido y disponibilidad en tiempo real.</p>
+  </div>
+  <label for="buscar">¿Qué buscas?<input id="buscar" placeholder="Ej. paracetamol" autocomplete="off"></label>
+  <div class="lista" id="lista"></div>
+</main>
+<script src="app.js"></script>
+<script>
+barra("catalogo.html");
+const $ = s => document.querySelector(s);
+async function buscar() {
+  const cont = $("#lista");
+  try {
+    const lista = await api("/productos?buscar=" + encodeURIComponent($("#buscar").value.trim()));
+    cont.textContent = "";
+    if (!lista.length) { cont.append(el("p", "vacio", "No encontramos ese producto.")); return; }
+    for (const p of lista) {
+      const t = el("article", "tarjeta producto");
+      t.append(el("strong", null, p.nombre), el("span", "precio", pesos(p.precio * (1 + p.tasaIVA))));
+      const ch = el("div", "chips");
+      if (p.caducado || p.existencia === 0) ch.append(chip("No disponible", "mal"));
+      else ch.append(chip("Disponible", "Medicamento"));
+      if (p.requiereReceta) ch.append(chip("Requiere receta", "mal"));
+      if (p.sustancia) ch.append(chip(p.sustancia + (p.concentracion ? " " + p.concentracion : "")));
+      t.append(ch); cont.append(t);
+    }
+  } catch (e) { mensaje(cont, e.message, "error"); }
+}
+let pendiente;
+$("#buscar").addEventListener("input", () => { clearTimeout(pendiente); pendiente = setTimeout(buscar, 300); });
+buscar();
+</script>
+</body>
+</html>

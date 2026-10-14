@@ -1,0 +1,4 @@
+    zn "%SYS"
+    do ##class(Security.Users).UnExpireUserPasswords("*")
+    set ^%SYS("CSP","DefaultFileCharset") = "utf-8"
+    halt

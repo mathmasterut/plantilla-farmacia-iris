@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inventario · Farmacia Huasteca</title>
+<link rel="stylesheet" href="estilos.css">
+<style>
+  .surtir { display: flex; gap: 6px; }
+  .surtir input { width: 70px; padding: 4px 6px; }
+  fieldset { border: 1px dashed var(--linea); border-radius: 8px; padding: 10px; margin: 0; display: grid; gap: 10px; }
+  legend { font-size: .8rem; font-weight: 700; color: var(--verde); padding: 0 6px; }
+</style>
+</head>
+<body>
+<main class="pagina">
+  <div class="encabezado">
+    <h1>Inventario</h1>
+    <p>Cada formulario envía un JSON a la API, que crea un objeto de la clase correspondiente y lo guarda con <code>%Save()</code>. Si una regla de la clase no se cumple, IRIS devuelve el error y aquí lo verás.</p>
+  </div>
+
+  <div class="rejilla-2">
+    <form class="tarjeta" id="form-producto">
+      <h2>Nuevo producto</h2>
+      <label for="tipo">Clase del objeto
+        <select id="tipo">
+          <option value="General">Producto general (Farmacia.Producto · IVA 16 %)</option>
+          <option value="Medicamento">Medicamento (Farmacia.Medicamento · IVA 0 %)</option>
+          <option value="Controlado">Medicamento controlado (Farmacia.MedicamentoControlado)</option>
+        </select>
+      </label>
+      <div class="campos">
+        <label for="codigo">Código<input id="codigo" maxlength="20" required></label>
+        <label for="nombre">Nombre<input id="nombre" maxlength="100" required></label>
+        <label for="precio">Precio sin IVA<input id="precio" type="number" step="0.01" min="0" required></label>
+        <label for="existencia">Existencia inicial<input id="existencia" type="number" min="0" value="10"></label>
+        <label for="proveedor">Proveedor<select id="proveedor"><option value="">(sin proveedor)</option></select></label>
+      </div>
+      <fieldset id="datos-med" hidden>
+        <legend>Datos de Medicamento</legend>
+        <div class="campos">
+          <label for="sustancia">Sustancia activa<input id="sustancia" maxlength="80"></label>
+          <label for="presentacion">Presentación
+            <select id="presentacion"><option>Tabletas</option><option>Capsulas</option><option>Jarabe</option><option>Suspension</option><option>Inyectable</option><option>Pomada</option><option>Gotas</option></select>
+          </label>
+          <label for="concentracion">Concentración<input id="concentracion" maxlength="30" placeholder="500 mg"></label>
+          <label for="caducidad">Caducidad<input id="caducidad" type="date"></label>
+        </div>
+      </fieldset>
+      <fieldset id="datos-ctrl" hidden>
+        <legend>Datos de Medicamento controlado</legend>
+        <label for="grupo">Grupo
+          <select id="grupo"><option>Antibiotico</option><option>Psicotropico</option><option>Estupefaciente</option></select>
+        </label>
+      </fieldset>
+      <div id="msg-producto"></div>
+      <button class="boton" type="submit">Guardar producto</button>
+    </form>
+
+    <div style="display:grid;gap:16px">
+      <form class="tarjeta" id="form-proveedor">
+        <h2>Nuevo proveedor</h2>
+        <div class="campos">
+          <label for="p-nombre">Nombre<input id="p-nombre" maxlength="80" required></label>
+          <label for="p-tel">Teléfono<input id="p-tel" maxlength="20"></label>
+          <label for="p-email">Correo<input id="p-email" maxlength="80" type="email"></label>
+        </div>
+        <div id="msg-proveedor"></div>
+        <button class="boton" type="submit">Guardar proveedor</button>
+      </form>
+      <form class="tarjeta" id="form-cliente">
+        <h2>Nuevo cliente</h2>
+        <div class="campos">
+          <label for="c-nombre">Nombre<input id="c-nombre" maxlength="80" required></label>
+          <label for="c-tel">Teléfono (10 dígitos)<input id="c-tel" maxlength="10" inputmode="numeric"></label>
+        </div>
+        <div id="msg-cliente"></div>
+        <button class="boton" type="submit">Guardar cliente</button>
+      </form>
+    </div>
+  </div>
+
+  <section class="tarjeta">
+    <div class="fila" style="justify-content:space-between">
+      <h2>Productos</h2>
+      <input id="filtro" placeholder="Filtrar" style="max-width:240px" aria-label="Filtrar productos">
+    </div>
+    <div id="msg-tabla"></div>
+    <div class="tabla-env">
+      <table>
+        <thead><tr><th>Código</th><th>Producto</th><th>Clase</th><th class="num">Precio</th><th class="num">Existencia</th><th>Caducidad</th><th>Proveedor</th><th>Surtir</th></tr></thead>
+        <tbody id="productos"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+<script src="app.js"></script>
+<script>
+barra("inventario.html");
+const $ = s => document.querySelector(s);
+
+// Mostrar los campos de la subclase elegida
+$("#tipo").addEventListener("change", () => {
+  const t = $("#tipo").value;
+  $("#datos-med").hidden = t === "General";
+  $("#datos-ctrl").hidden = t !== "Controlado";
+});
+
+// POST /productos
+$("#form-producto").addEventListener("submit", async e => {
+  e.preventDefault();
+  const datos = {
+    tipo: $("#tipo").value, codigo: $("#codigo").value.trim(), nombre: $("#nombre").value.trim(),
+    precio: $("#precio").value, existencia: $("#existencia").value, proveedorId: $("#proveedor").value
+  };
+  if (datos.tipo !== "General") Object.assign(datos, { sustancia: $("#sustancia").value.trim(), presentacion: $("#presentacion").value, concentracion: $("#concentracion").value.trim(), caducidad: $("#caducidad").value });
+  if (datos.tipo === "Controlado") datos.grupo = $("#grupo").value;
+  try {
+    const p = await api("/productos", "POST", datos);
+    mensaje($("#msg-producto"), "Guardado como objeto " + p.clase + " con ID " + p.id + ".", "ok");
+    e.target.reset(); $("#tipo").dispatchEvent(new Event("change"));
+    cargarProductos();
+  } catch (err) { mensaje($("#msg-producto"), err.message, "error"); }
+});
+
+// POST /proveedores
+$("#form-proveedor").addEventListener("submit", async e => {
+  e.preventDefault();
+  try {
+    const p = await api("/proveedores", "POST", { nombre: $("#p-nombre").value.trim(), telefono: $("#p-tel").value.trim(), email: $("#p-email").value.trim() });
+    mensaje($("#msg-proveedor"), "Proveedor guardado con ID " + p.id + ".", "ok");
+    e.target.reset(); cargarProveedores();
+  } catch (err) { mensaje($("#msg-proveedor"), err.message, "error"); }
+});
+
+// POST /clientes
+$("#form-cliente").addEventListener("submit", async e => {
+  e.preventDefault();
+  try {
+    const c = await api("/clientes", "POST", { nombre: $("#c-nombre").value.trim(), telefono: $("#c-tel").value.trim() });
+    mensaje($("#msg-cliente"), "Cliente guardado con ID " + c.id + ".", "ok");
+    e.target.reset();
+  } catch (err) { mensaje($("#msg-cliente"), err.message, "error"); }
+});
+
+async function cargarProveedores() {
+  try {
+    const lista = await api("/proveedores");
+    const s = $("#proveedor"); s.length = 1;
+    for (const p of lista) { const o = el("option", null, p.nombre); o.value = p.id; s.append(o); }
+  } catch (e) { /* conexion indicada arriba */ }
+}
+
+// GET /productos  y  POST /productos/:id/surtir
+async function cargarProductos() {
+  const tb = $("#productos");
+  try {
+    const lista = await api("/productos?buscar=" + encodeURIComponent($("#filtro").value.trim()));
+    tb.textContent = "";
+    if (!lista.length) { const tr = el("tr"); const td = el("td", "vacio", "No hay productos. Da de alta uno o ejecuta Farmacia.Datos.Cargar() en la terminal."); td.colSpan = 8; tr.append(td); tb.append(tr); return; }
+    for (const p of lista) {
+      const tr = el("tr");
+      const ex = el("td", "num"); ex.append(el("span", null, p.existencia + " "));
+      if (p.existencia === 0) ex.append(chip("Agotado", "mal")); else if (p.bajoMinimo) ex.append(chip("Mínimo", "alerta"));
+      const cad = el("td");
+      if (p.caducidad) { cad.append(el("span", null, fechaCorta(p.caducidad) + " ")); if (p.caducado) cad.append(chip("Caducado", "mal")); }
+      const tipo = el("td"); tipo.append(chip(p.tipo, p.tipo));
+      const s = el("td"); const f = el("form", "surtir");
+      const inp = el("input"); inp.type = "number"; inp.min = "1"; inp.value = "10"; inp.id = "surtir-" + p.id; inp.setAttribute("aria-label", "Piezas a surtir de " + p.nombre);
+      const b = el("button", "boton sec mini", "+"); b.type = "submit"; b.setAttribute("aria-label", "Surtir " + p.nombre);
+      f.append(inp, b);
+      f.addEventListener("submit", async ev => {
+        ev.preventDefault();
+        try { await api("/productos/" + p.id + "/surtir", "POST", { cantidad: Number(inp.value) }); cargarProductos(); }
+        catch (err) { mensaje($("#msg-tabla"), err.message, "error"); }
+      });
+      s.append(f);
+      tr.append(el("td", null, p.codigo), el("td", null, p.nombre), tipo, el("td", "num", pesos(p.precio)), ex, cad, el("td", null, p.proveedor), s);
+      tb.append(tr);
+    }
+  } catch (e) { mensaje($("#msg-tabla"), e.message, "error"); }
+}
+let pendiente;
+$("#filtro").addEventListener("input", () => { clearTimeout(pendiente); pendiente = setTimeout(cargarProductos, 300); });
+cargarProveedores(); cargarProductos();
+</script>
+</body>
+</html>

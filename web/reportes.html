@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ventas · Farmacia Huasteca</title>
+<link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+<main class="pagina">
+  <div class="encabezado">
+    <h1>Ventas registradas</h1>
+    <p>La lista sale de una consulta SQL sobre la clase <code>Farmacia.Venta</code>; el detalle abre el objeto con <code>%OpenId()</code> y recorre su colección de partidas embebidas.</p>
+  </div>
+  <section class="indicadores" id="indicadores"></section>
+  <div class="rejilla-2">
+    <section class="tarjeta">
+      <div class="fila" style="justify-content:space-between"><h2>Últimas ventas</h2><button class="boton sec mini" id="recargar" type="button">Actualizar</button></div>
+      <div id="msg"></div>
+      <div class="tabla-env">
+        <table>
+          <thead><tr><th>Folio</th><th>Fecha</th><th>Cliente</th><th class="num">Total</th></tr></thead>
+          <tbody id="ventas"></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="tarjeta" id="detalle">
+      <h2>Detalle del ticket</h2>
+      <p class="vacio">Elige una venta de la lista.</p>
+    </section>
+  </div>
+</main>
+<script src="app.js"></script>
+<script>
+barra("reportes.html");
+const $ = s => document.querySelector(s);
+
+async function cargar() {
+  try {
+    const r = await api("/resumen");
+    const c = $("#indicadores"); c.textContent = "";
+    for (const [v, t] of [[r.ventasHoy, "Ventas de hoy (UTC)"], [pesos(r.totalHoy), "Total de hoy"], [r.bajoMinimo, "Productos en mínimo"], [r.caducados, "Caducados"]]) {
+      const d = el("div", "indicador"); d.append(el("b", null, v), el("span", null, t)); c.append(d);
+    }
+    const lista = await api("/ventas");
+    const tb = $("#ventas"); tb.textContent = "";
+    if (!lista.length) { const tr = el("tr"); const td = el("td", "vacio", "Todavía no hay ventas. Registra una en el Punto de venta."); td.colSpan = 4; tr.append(td); tb.append(tr); return; }
+    for (const v of lista) {
+      const tr = el("tr", "clic"); tr.tabIndex = 0;
+      tr.append(el("td", null, v.id), el("td", null, fechaLocal(v.fecha)), el("td", null, v.cliente), el("td", "num", pesos(v.total)));
+      tr.addEventListener("click", () => detalle(v.id));
+      tr.addEventListener("keydown", e => { if (e.key === "Enter") detalle(v.id); });
+      tb.append(tr);
+    }
+  } catch (e) { mensaje($("#msg"), e.message, "error"); }
+}
+
+// GET /ventas/:id
+async function detalle(id) {
+  const d = $("#detalle"); d.textContent = "";
+  d.append(el("h2", null, "Ticket " + id));
+  try {
+    const v = await api("/ventas/" + id);
+    d.append(el("p", "nota", fechaLocal(v.fecha) + " · " + v.cliente));
+    const t = el("table"); const th = el("tr");
+    ["Producto", "Cant.", "Precio", "IVA", "Importe"].forEach((x, i) => th.append(el("th", i ? "num" : null, x)));
+    t.append(th);
+    for (const p of v.partidas) {
+      const tr = el("tr");
+      tr.append(el("td", null, p.producto), el("td", "num", p.cantidad), el("td", "num", pesos(p.precio)), el("td", "num", (p.tasaIVA * 100) + " %"), el("td", "num", pesos(p.importe)));
+      t.append(tr);
+    }
+    const env = el("div", "tabla-env"); env.append(t); d.append(env);
+    const tot = el("p"); tot.append(el("span", null, "Subtotal " + pesos(v.subtotal) + " · IVA " + pesos(v.iva) + " · "), el("strong", null, "Total " + pesos(v.total)));
+    d.append(tot);
+    if (v.receta) d.append(el("div", "aviso info", "Receta: " + v.receta.medico + " · cédula " + v.receta.cedula + " · " + fechaCorta(v.receta.fecha)));
+    const det = el("details"); det.append(el("summary", null, "JSON que devolvió la API"), el("pre", "json", JSON.stringify(v, null, 2)));
+    d.append(det);
+  } catch (e) { d.append(el("div", "aviso error", e.message)); }
+}
+$("#recargar").addEventListener("click", cargar);
+cargar();
+</script>
+</body>
+</html>

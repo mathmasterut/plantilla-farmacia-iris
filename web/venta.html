@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Punto de venta · Farmacia Huasteca</title>
+<link rel="stylesheet" href="estilos.css">
+<style>
+  .resultado { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--linea); }
+  .resultado:last-child { border-bottom: 0; }
+  .resultado .info { display: grid; gap: 3px; min-width: 0; }
+  .resultado .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .resultado .precio { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .ticket td input { width: 70px; padding: 4px 6px; }
+  .totales { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; font-variant-numeric: tabular-nums; }
+  .totales .total { font-size: 1.2rem; font-weight: 800; }
+  .receta { border: 1px dashed var(--rojo); border-radius: 8px; padding: 10px; display: grid; gap: 8px; }
+  .receta h3 { color: var(--rojo); }
+</style>
+</head>
+<body>
+<main class="pagina">
+  <div class="encabezado">
+    <h1>Punto de venta</h1>
+    <p>Busca, agrega al ticket y cobra. Al cobrar, la página envía el ticket a la API y IRIS lo guarda en una transacción: descuenta existencias y registra la venta, o no guarda nada si algo falla.</p>
+  </div>
+  <div class="rejilla-2">
+    <section class="tarjeta" aria-label="Buscar productos">
+      <label for="buscar">Buscar por nombre o código
+        <input id="buscar" placeholder="Ej. paracetamol, cubrebocas, 7502…" autocomplete="off">
+      </label>
+      <div id="resultados"></div>
+    </section>
+
+    <section class="tarjeta" aria-label="Ticket">
+      <h2>Ticket</h2>
+      <label for="cliente">Cliente
+        <select id="cliente"><option value="">Público en general</option></select>
+      </label>
+      <div class="tabla-env">
+        <table class="ticket">
+          <thead><tr><th>Producto</th><th class="num">Cant.</th><th class="num">Importe</th><th></th></tr></thead>
+          <tbody id="lineas"></tbody>
+        </table>
+      </div>
+      <div class="receta" id="receta" hidden>
+        <h3>Receta médica obligatoria</h3>
+        <p class="nota">El ticket incluye un medicamento controlado.</p>
+        <div class="campos">
+          <label for="medico">Médico<input id="medico" maxlength="80"></label>
+          <label for="cedula">Cédula profesional<input id="cedula" maxlength="8" inputmode="numeric"></label>
+          <label for="fechaReceta">Fecha de la receta<input id="fechaReceta" type="date"></label>
+        </div>
+      </div>
+      <div class="totales" id="totales"></div>
+      <div id="msg"></div>
+      <div class="fila">
+        <button class="boton" id="cobrar" type="button" disabled>Cobrar</button>
+        <button class="boton sec" id="vaciar" type="button">Vaciar ticket</button>
+      </div>
+      <div id="resultado"></div>
+    </section>
+  </div>
+</main>
+<script src="app.js"></script>
+<script>
+barra("venta.html");
+const $ = s => document.querySelector(s);
+let ticket = [];          // [{producto, cantidad}]
+let busquedaPendiente;
+
+// ---------- Buscar: GET /productos?buscar=...
+async function buscar() {
+  const cont = $("#resultados");
+  try {
+    const lista = await api("/productos?buscar=" + encodeURIComponent($("#buscar").value.trim()));
+    cont.textContent = "";
+    if (!lista.length) { cont.append(el("p", "vacio", "Sin resultados. Revisa el texto o da de alta el producto en Inventario.")); return; }
+    for (const p of lista) cont.append(tarjetaProducto(p));
+  } catch (e) { mensaje(cont, e.message, "error"); }
+}
+function tarjetaProducto(p) {
+  const r = el("div", "resultado");
+  const info = el("div", "info");
+  info.append(el("strong", null, p.nombre));
+  const chips = el("div", "chips");
+  chips.append(chip(p.tipo, p.tipo));
+  if (p.requiereReceta) chips.append(chip("Requiere receta", "mal"));
+  if (p.caducado) chips.append(chip("Caducado " + fechaCorta(p.caducidad), "mal"));
+  chips.append(chip(p.existencia + " en existencia", p.existencia === 0 ? "mal" : (p.bajoMinimo ? "alerta" : "")));
+  chips.append(chip(p.tasaIVA ? "IVA 16 %" : "IVA 0 %"));
+  info.append(chips);
+  const der = el("div", "fila");
+  der.append(el("span", "precio", pesos(p.precio)));
+  const b = el("button", "boton mini", "Agregar"); b.type = "button";
+  b.addEventListener("click", () => agregar(p));
+  der.append(b);
+  r.append(info, der);
+  return r;
+}
+
+// ---------- Ticket (en la pagina, todavia no se guarda nada)
+function agregar(p) {
+  const ya = ticket.find(l => l.producto.id === p.id);
+  if (ya) ya.cantidad++; else ticket.push({ producto: p, cantidad: 1 });
+  $("#resultado").textContent = "";
+  pintarTicket();
+}
+function pintarTicket() {
+  const tb = $("#lineas"); tb.textContent = "";
+  let sub = 0, iva = 0;
+  if (!ticket.length) { const tr = el("tr"); const td = el("td", "vacio", "Agrega productos desde la búsqueda."); td.colSpan = 4; tr.append(td); tb.append(tr); }
+  ticket.forEach((l, i) => {
+    const tr = el("tr");
+    const n = el("td"); n.append(el("div", null, l.producto.nombre), chip(l.producto.tipo, l.producto.tipo));
+    const c = el("td", "num"); const inp = el("input"); inp.type = "number"; inp.min = "1"; inp.value = l.cantidad; inp.id = "cant-" + i;
+    inp.setAttribute("aria-label", "Cantidad de " + l.producto.nombre);
+    inp.addEventListener("change", () => { l.cantidad = Math.max(1, parseInt(inp.value, 10) || 1); pintarTicket(); });
+    c.append(inp);
+    const imp = l.cantidad * l.producto.precio; sub += imp; iva += imp * l.producto.tasaIVA;
+    const q = el("td"); const bq = el("button", "boton peligro mini", "Quitar"); bq.type = "button";
+    bq.addEventListener("click", () => { ticket.splice(i, 1); pintarTicket(); }); q.append(bq);
+    tr.append(n, c, el("td", "num", pesos(imp)), q); tb.append(tr);
+  });
+  const t = $("#totales"); t.textContent = "";
+  t.append(el("span", null, "Subtotal"), el("span", null, pesos(sub)), el("span", null, "IVA"), el("span", null, pesos(iva)), el("span", "total", "Total"), el("span", "total", pesos(sub + iva)));
+  $("#receta").hidden = !ticket.some(l => l.producto.requiereReceta);
+  $("#cobrar").disabled = !ticket.length;
+  mensaje($("#msg"), "");   // si cambia el ticket, el aviso anterior ya no aplica
+}
+
+// ---------- Cobrar: POST /ventas  (IRIS ejecuta Farmacia.Venta.Registrar en una transaccion)
+$("#cobrar").addEventListener("click", async () => {
+  const datos = {
+    clienteId: $("#cliente").value,
+    partidas: ticket.map(l => ({ productoId: l.producto.id, cantidad: l.cantidad }))
+  };
+  if (!$("#receta").hidden) datos.receta = { medico: $("#medico").value.trim(), cedula: $("#cedula").value.trim(), fecha: $("#fechaReceta").value };
+  $("#cobrar").disabled = true;
+  mensaje($("#msg"), "");
+  try {
+    const v = await api("/ventas", "POST", datos);
+    ticket = []; pintarTicket(); buscar(); cargarClientes();
+    const res = $("#resultado"); res.textContent = "";
+    res.append(el("div", "aviso ok", "Venta guardada en IRIS con folio " + v.id + " por " + pesos(v.total) + "."));
+    const d = el("details"); d.append(el("summary", null, "Ver el objeto Venta que devolvió IRIS (JSON)"), el("pre", "json", JSON.stringify(v, null, 2)));
+    res.append(d);
+  } catch (e) {
+    mensaje($("#msg"), "IRIS rechazó la venta y no guardó nada: " + e.message, "error");
+    $("#cobrar").disabled = false;
+  }
+});
+$("#vaciar").addEventListener("click", () => { ticket = []; pintarTicket(); mensaje($("#msg"), ""); });
+
+async function cargarClientes() {
+  try {
+    const cl = await api("/clientes");
+    const s = $("#cliente"), actual = s.value;
+    s.length = 1;
+    for (const c of cl) { const o = el("option", null, c.nombre + " · " + c.puntos + " puntos"); o.value = c.id; s.append(o); }
+    s.value = actual;
+  } catch (e) { /* el estado de conexion ya se muestra arriba */ }
+}
+$("#buscar").addEventListener("input", () => { clearTimeout(busquedaPendiente); busquedaPendiente = setTimeout(buscar, 300); });
+$("#fechaReceta").valueAsDate = new Date();
+pintarTicket(); buscar(); cargarClientes();
+</script>
+</body>
+</html>

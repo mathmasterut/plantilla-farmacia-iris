@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Farmacia Huasteca</title>
+<link rel="stylesheet" href="estilos.css">
+<style>
+  .modulos { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .modulo { text-decoration: none; color: inherit; }
+  .modulo:hover { border-color: var(--menta); }
+  .modulo b { color: var(--verde); font-size: 1.05rem; }
+  .qr { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px; align-items: center; }
+  #qr { background: #fff; padding: 8px; border-radius: 8px; width: 176px; height: 176px; }
+  #qr img, #qr canvas { width: 160px; height: 160px; display: block; }
+  @media (max-width: 520px) { .qr { grid-template-columns: minmax(0, 1fr); } }
+  .flujo { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: .85rem; }
+  .flujo span { background: var(--fondo); border: 1px solid var(--linea); border-radius: 8px; padding: 4px 8px; }
+</style>
+</head>
+<body>
+<main class="pagina">
+  <div class="encabezado">
+    <h1>Farmacia Huasteca</h1>
+    <p>Sistema de punto de venta e inventario. Todo lo que registres aquí se guarda como objetos en InterSystems IRIS, en tu codespace.</p>
+  </div>
+
+  <section class="indicadores" id="indicadores" aria-label="Resumen del día">
+    <div class="indicador"><b>—</b><span>Ventas de hoy</span></div>
+  </section>
+  <div id="msg"></div>
+
+  <section class="modulos" aria-label="Módulos">
+    <a class="tarjeta modulo" href="venta.html"><b>Punto de venta</b><span class="nota">Busca productos, arma el ticket y cobra. La venta se guarda con una transacción.</span></a>
+    <a class="tarjeta modulo" href="inventario.html"><b>Inventario</b><span class="nota">Da de alta proveedores, clientes y productos de las tres clases; surte existencias.</span></a>
+    <a class="tarjeta modulo" href="reportes.html"><b>Ventas</b><span class="nota">Consulta los tickets guardados y el JSON que devuelve IRIS de cada venta.</span></a>
+    <a class="tarjeta modulo" href="catalogo.html"><b>Catálogo para clientes</b><span class="nota">Versión para celular: precios y disponibilidad.</span></a>
+  </section>
+
+  <section class="tarjeta qr">
+    <div id="qr" aria-label="Código QR del catálogo"></div>
+    <div style="display:grid;gap:8px">
+      <h2>Escanea para ver el catálogo en tu celular</h2>
+      <p class="nota">El código lleva a <span id="url-catalogo"></span>. Funciona mientras el codespace esté encendido y el puerto 52773 sea público.</p>
+      <div class="flujo" aria-label="Recorrido de un dato">
+        <span>Página web</span>→<span>fetch() JSON</span>→<span>API REST · Farmacia.API</span>→<span>Objetos · %Save()</span>→<span>Globals en la base FARMACIA</span>
+      </div>
+    </div>
+  </section>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<script src="app.js"></script>
+<script>
+barra("index.html");
+
+// QR con la direccion del catalogo (se calcula sola con la direccion actual)
+const urlCatalogo = new URL("catalogo.html", location.href).href;
+document.getElementById("url-catalogo").textContent = urlCatalogo;
+if (window.qrcode) {
+  const q = qrcode(0, "M"); q.addData(urlCatalogo); q.make();
+  document.getElementById("qr").innerHTML = q.createImgTag(5, 0);
+} else {
+  document.getElementById("qr").textContent = "No se pudo cargar el generador de QR.";
+}
+
+// Indicadores del dia: GET /resumen
+api("/resumen").then(r => {
+  const c = document.getElementById("indicadores"); c.textContent = "";
+  const datos = [
+    [r.ventasHoy, "Ventas de hoy (UTC)", ""], [pesos(r.totalHoy), "Total vendido hoy", ""],
+    [r.productos, "Productos en catálogo", ""], [r.bajoMinimo, "En existencia mínima", r.bajoMinimo ? "alerta" : ""],
+    [r.caducados, "Medicamentos caducados", r.caducados ? "mal" : ""]
+  ];
+  for (const [v, t, cl] of datos) { const d = el("div", "indicador " + cl); d.append(el("b", null, v), el("span", null, t)); c.append(d); }
+}).catch(e => mensaje(document.getElementById("msg"), e.message, "error"));
+</script>
+</body>
+</html>
