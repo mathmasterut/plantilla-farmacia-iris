@@ -1,1 +1,4 @@
-.git
+* text=auto eol=lf
+*.cls text eol=lf
+iris.script text eol=lf
+Dockerfile text eol=lf
