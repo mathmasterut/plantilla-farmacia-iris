@@ -1,0 +1,49 @@
+{
+  "name": "Farmacia Huasteca - InterSystems IRIS",
+  "dockerComposeFile": [
+    "../docker-compose.yml"
+  ],
+  "service": "iris",
+  "workspaceFolder": "/home/irisowner/dev",
+  "forwardPorts": [
+    52773
+  ],
+  "portsAttributes": {
+    "52773": {
+      "label": "Portal de IRIS",
+      "onAutoForward": "notify"
+    }
+  },
+  "hostRequirements": {
+    "cpus": 2,
+    "memory": "4gb"
+  },
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "objectscript.conn": {
+          "server": "devcontainer",
+          "ns": "USER",
+          "active": true
+        },
+        "intersystems.servers": {
+          "devcontainer": {
+            "username": "_SYSTEM",
+            "password": "SYS",
+            "webServer": {
+              "scheme": "http",
+              "host": "127.0.0.1",
+              "port": 52773
+            }
+          }
+        }
+      },
+      "extensions": [
+        "intersystems-community.vscode-objectscript",
+        "intersystems.language-server",
+        "intersystems-community.servermanager"
+      ]
+    }
+  },
+  "updateRemoteUserUID": false
+}
